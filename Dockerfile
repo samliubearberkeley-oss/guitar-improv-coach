@@ -1,31 +1,28 @@
-# Build stage
-FROM node:20-alpine AS builder
+# Build stage - use full node image (not alpine) to avoid musl compatibility issues
+FROM node:20 AS builder
 
 WORKDIR /app
 
-# Copy package files first (for better caching)
+# Copy package files
 COPY package.json package-lock.json ./
 
-# Install ALL dependencies (including devDependencies)
-RUN npm ci --include=dev && \
-    echo "=== Installed packages ===" && \
-    ls -la node_modules/.bin/ | head -20 && \
-    echo "=== Vite version ===" && \
-    ./node_modules/.bin/vite --version
+# Install dependencies - use npm install to get correct platform binaries
+# Delete package-lock.json first to avoid platform mismatch
+RUN rm -f package-lock.json && npm install
 
 # Copy source code
 COPY . .
 
-# Build the application using explicit path
-RUN ./node_modules/.bin/vite build
+# Build the application
+RUN npm run build
 
-# Production stage - serve static files
+# Production stage - serve static files with nginx
 FROM nginx:alpine AS production
 
 # Copy built files to nginx
 COPY --from=builder /app/dist /usr/share/nginx/html
 
-# Copy nginx configuration for SPA routing
+# Nginx configuration for SPA routing
 RUN echo 'server { \
     listen 80; \
     server_name _; \
