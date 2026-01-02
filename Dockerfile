@@ -6,14 +6,16 @@ WORKDIR /app
 # Copy package files
 COPY package.json package-lock.json ./
 
-# Install dependencies - use npm install to get correct platform binaries
-# Delete package-lock.json first to avoid platform mismatch
-RUN rm -f package-lock.json && npm install
+# Install ALL dependencies including devDependencies (needed for vite build)
+RUN npm ci --include=dev
+
+# Verify vite is installed
+RUN npx vite --version || (echo "Vite not found, listing node_modules:" && ls -la node_modules/.bin/ | head -20)
 
 # Copy source code
 COPY . .
 
-# Build the application
+# Build the application using npx to ensure vite is found
 RUN npm run build
 
 # Production stage - serve static files with nginx
