@@ -90,7 +90,7 @@ export function noteToFretPositions(note: string): { string: number; fret: numbe
     const openOctave = parseInt(STANDARD_TUNING[stringIndex].match(/[0-9]+/)?.[0] || '4');
     
     // Calculate fret position
-    let fret = noteIndex - openNoteIndex + (octave - openOctave) * 12;
+    const fret = noteIndex - openNoteIndex + (octave - openOctave) * 12;
     
     // Only include valid fret positions (0-24)
     if (fret >= 0 && fret <= 24) {
@@ -228,5 +228,7 @@ export function calculatePhraseConsistency(notes: NoteEvent[]): number {
   if (relativeStdDev < 1.2) return 60;
   return Math.max(40, Math.round(100 - relativeStdDev * 30));
 }
+
+
 
 

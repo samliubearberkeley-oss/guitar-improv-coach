@@ -267,3 +267,5 @@ export function Fretboard({ currentNote, recentNotes, style, musicalKey }: Fretb
 }
 
 
+
+

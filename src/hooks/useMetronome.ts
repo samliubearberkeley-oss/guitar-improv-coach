@@ -38,6 +38,17 @@ export function useMetronome(tempo: number, enabled: boolean = true): UseMetrono
   const audioContextRef = useRef<AudioContext | null>(null);
   const intervalRef = useRef<number | null>(null);
   const beatRef = useRef(0);
+  const tempoRef = useRef(tempo);
+  const enabledRef = useRef(enabled);
+  
+  // Keep refs in sync with props
+  useEffect(() => {
+    tempoRef.current = tempo;
+  }, [tempo]);
+  
+  useEffect(() => {
+    enabledRef.current = enabled;
+  }, [enabled]);
   
   // Initialize audio context
   useEffect(() => {
@@ -55,7 +66,7 @@ export function useMetronome(tempo: number, enabled: boolean = true): UseMetrono
   
   // Play tick sound
   const playTick = useCallback(() => {
-    if (!audioContextRef.current || !enabled) return;
+    if (!audioContextRef.current || !enabledRef.current) return;
     
     // Resume audio context if suspended (browser autoplay policy)
     if (audioContextRef.current.state === 'suspended') {
@@ -68,35 +79,10 @@ export function useMetronome(tempo: number, enabled: boolean = true): UseMetrono
     const isAccent = beatRef.current === 1; // Accent on beat 1
     const source = createTickSound(audioContextRef.current, isAccent);
     source.start(0);
-  }, [enabled]);
+  }, []);
   
-  // Start metronome
-  const start = useCallback(() => {
-    if (isPlaying || !audioContextRef.current) return;
-    
-    // Resume audio context if needed
-    if (audioContextRef.current.state === 'suspended') {
-      audioContextRef.current.resume();
-    }
-    
-    setIsPlaying(true);
-    beatRef.current = 0;
-    setBeat(0);
-    
-    // Calculate interval in milliseconds
-    const intervalMs = (60 / tempo) * 1000;
-    
-    // Play first tick immediately
-    playTick();
-    
-    // Set up interval for subsequent ticks
-    intervalRef.current = window.setInterval(() => {
-      playTick();
-    }, intervalMs);
-  }, [isPlaying, tempo, playTick]);
-  
-  // Stop metronome
-  const stop = useCallback(() => {
+  // Stop metronome - defined without dependencies to avoid circular refs
+  const stopMetronome = useCallback(() => {
     if (intervalRef.current !== null) {
       clearInterval(intervalRef.current);
       intervalRef.current = null;
@@ -106,43 +92,72 @@ export function useMetronome(tempo: number, enabled: boolean = true): UseMetrono
     beatRef.current = 0;
   }, []);
   
+  // Start metronome
+  const startMetronome = useCallback(() => {
+    if (!audioContextRef.current) return;
+    
+    // Resume audio context if needed
+    if (audioContextRef.current.state === 'suspended') {
+      audioContextRef.current.resume();
+    }
+    
+    // Clear any existing interval
+    if (intervalRef.current !== null) {
+      clearInterval(intervalRef.current);
+    }
+    
+    setIsPlaying(true);
+    beatRef.current = 0;
+    setBeat(0);
+    
+    // Calculate interval in milliseconds
+    const intervalMs = (60 / tempoRef.current) * 1000;
+    
+    // Play first tick immediately
+    playTick();
+    
+    // Set up interval for subsequent ticks
+    intervalRef.current = window.setInterval(() => {
+      playTick();
+    }, intervalMs);
+  }, [playTick]);
+  
   // Toggle metronome
   const toggle = useCallback(() => {
     if (isPlaying) {
-      stop();
+      stopMetronome();
     } else {
-      start();
+      startMetronome();
     }
-  }, [isPlaying, start, stop]);
+  }, [isPlaying, startMetronome, stopMetronome]);
   
   // Cleanup on unmount
   useEffect(() => {
     return () => {
-      stop();
-    };
-  }, [stop]);
-  
-  // Update interval when tempo changes
-  useEffect(() => {
-    if (isPlaying && intervalRef.current !== null) {
-      // Restart with new tempo
-      const wasPlaying = isPlaying;
-      stop();
-      if (wasPlaying) {
-        // Use setTimeout to avoid state update during render
-        setTimeout(() => {
-          start();
-        }, 0);
+      if (intervalRef.current !== null) {
+        clearInterval(intervalRef.current);
       }
-    }
-  }, [tempo]); // eslint-disable-line react-hooks/exhaustive-deps
+    };
+  }, []);
+  
+  // Update interval when tempo changes while playing
+  useEffect(() => {
+    if (!isPlaying || intervalRef.current === null) return;
+    
+    // Clear old interval and start new one with updated tempo
+    clearInterval(intervalRef.current);
+    
+    const intervalMs = (60 / tempo) * 1000;
+    intervalRef.current = window.setInterval(() => {
+      playTick();
+    }, intervalMs);
+  }, [tempo, isPlaying, playTick]);
   
   return {
     isPlaying,
     beat,
-    start,
-    stop,
+    start: startMetronome,
+    stop: stopMetronome,
     toggle,
   };
 }
-

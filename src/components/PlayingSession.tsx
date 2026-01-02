@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { motion } from 'motion/react';
 import type { SessionSettings, NoteEvent } from '../types';
 import { Fretboard } from './Fretboard';
@@ -29,12 +29,42 @@ export function PlayingSession({ settings, onEnd, onCancel }: PlayingSessionProp
 
   const [sessionTime, setSessionTime] = useState(0);
   const [isStarted, setIsStarted] = useState(false);
+  
+  // Use refs to avoid stale closures in timer callback
+  const noteEventsRef = useRef<NoteEvent[]>([]);
+  const onEndRef = useRef(onEnd);
+  const metronomeRef = useRef(metronome);
+  const stopListeningRef = useRef(stopListening);
+  
+  // Keep refs in sync
+  useEffect(() => {
+    noteEventsRef.current = noteEvents;
+  }, [noteEvents]);
+  
+  useEffect(() => {
+    onEndRef.current = onEnd;
+  }, [onEnd]);
+  
+  useEffect(() => {
+    metronomeRef.current = metronome;
+  }, [metronome]);
+  
+  useEffect(() => {
+    stopListeningRef.current = stopListening;
+  }, [stopListening]);
 
   // Start listening when component mounts
   useEffect(() => {
     startListening();
     return () => stopListening();
   }, [startListening, stopListening]);
+
+  // Handle end session - stable callback using refs
+  const handleEndSession = useCallback(() => {
+    metronomeRef.current.stop();
+    stopListeningRef.current();
+    onEndRef.current(noteEventsRef.current);
+  }, []);
 
   // Session timer
   useEffect(() => {
@@ -51,7 +81,7 @@ export function PlayingSession({ settings, onEnd, onCancel }: PlayingSessionProp
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [isStarted, audioState.isListening]);
+  }, [isStarted, audioState.isListening, handleEndSession]);
 
   const handleStartSession = useCallback(() => {
     clearNotes();
@@ -62,12 +92,6 @@ export function PlayingSession({ settings, onEnd, onCancel }: PlayingSessionProp
       metronome.start();
     }
   }, [clearNotes, settings.metronomeEnabled, metronome]);
-
-  const handleEndSession = useCallback(() => {
-    metronome.stop();
-    stopListening();
-    onEnd(noteEvents);
-  }, [metronome, stopListening, onEnd, noteEvents]);
 
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
@@ -293,4 +317,3 @@ export function PlayingSession({ settings, onEnd, onCancel }: PlayingSessionProp
     </div>
   );
 }
-

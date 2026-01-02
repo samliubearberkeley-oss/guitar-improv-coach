@@ -110,58 +110,64 @@ export function useAudioInput(): UseAudioInputReturn {
   const lastNoteRef = useRef<string | null>(null);
   const lastNoteTimeRef = useRef<number>(0);
   const sessionStartRef = useRef<number>(0);
+  const processAudioRef = useRef<(() => void) | null>(null);
   
-  const processAudio = useCallback(() => {
-    if (!analyserRef.current) return;
-    
-    const analyser = analyserRef.current;
-    const bufferLength = analyser.fftSize;
-    const buffer = new Float32Array(bufferLength);
-    
-    analyser.getFloatTimeDomainData(buffer);
-    
-    // Calculate input level
-    let sum = 0;
-    for (let i = 0; i < bufferLength; i++) {
-      sum += buffer[i] * buffer[i];
-    }
-    const rms = Math.sqrt(sum / bufferLength);
-    const level = Math.min(1, rms * 10); // Scale for visualization
-    setInputLevel(level);
-    
-    // Detect pitch
-    const pitchResult = detectPitch(buffer, audioContextRef.current!.sampleRate);
-    
-    if (pitchResult && pitchResult.confidence > 0.15) {
-      const { note, cents } = frequencyToNote(pitchResult.frequency);
-      const now = Date.now();
-      const timestamp = now - sessionStartRef.current;
+  // Store processAudio in a ref to avoid self-reference issues
+  useEffect(() => {
+    processAudioRef.current = () => {
+      if (!analyserRef.current || !audioContextRef.current) return;
       
-      // Debounce: only register if different note or 100ms passed
-      if (note !== lastNoteRef.current || now - lastNoteTimeRef.current > 100) {
-        const noteEvent: NoteEvent = {
-          note,
-          frequency: pitchResult.frequency,
-          timestamp,
-          confidence: pitchResult.confidence,
-          cents,
-          velocity: level,
-        };
-        
-        setCurrentNote(noteEvent);
-        setNoteEvents(prev => [...prev, noteEvent]);
-        
-        lastNoteRef.current = note;
-        lastNoteTimeRef.current = now;
+      const analyser = analyserRef.current;
+      const bufferLength = analyser.fftSize;
+      const buffer = new Float32Array(bufferLength);
+      
+      analyser.getFloatTimeDomainData(buffer);
+      
+      // Calculate input level
+      let sum = 0;
+      for (let i = 0; i < bufferLength; i++) {
+        sum += buffer[i] * buffer[i];
       }
-    } else {
-      // No clear pitch detected
-      if (Date.now() - lastNoteTimeRef.current > 300) {
-        setCurrentNote(null);
+      const rms = Math.sqrt(sum / bufferLength);
+      const level = Math.min(1, rms * 10); // Scale for visualization
+      setInputLevel(level);
+      
+      // Detect pitch
+      const pitchResult = detectPitch(buffer, audioContextRef.current!.sampleRate);
+      
+      if (pitchResult && pitchResult.confidence > 0.15) {
+        const { note, cents } = frequencyToNote(pitchResult.frequency);
+        const now = Date.now();
+        const timestamp = now - sessionStartRef.current;
+        
+        // Debounce: only register if different note or 100ms passed
+        if (note !== lastNoteRef.current || now - lastNoteTimeRef.current > 100) {
+          const noteEvent: NoteEvent = {
+            note,
+            frequency: pitchResult.frequency,
+            timestamp,
+            confidence: pitchResult.confidence,
+            cents,
+            velocity: level,
+          };
+          
+          setCurrentNote(noteEvent);
+          setNoteEvents(prev => [...prev, noteEvent]);
+          
+          lastNoteRef.current = note;
+          lastNoteTimeRef.current = now;
+        }
+      } else {
+        // No clear pitch detected
+        if (Date.now() - lastNoteTimeRef.current > 300) {
+          setCurrentNote(null);
+        }
       }
-    }
-    
-    animationFrameRef.current = requestAnimationFrame(processAudio);
+      
+      animationFrameRef.current = requestAnimationFrame(() => {
+        processAudioRef.current?.();
+      });
+    };
   }, []);
   
   const startListening = useCallback(async () => {
@@ -199,7 +205,8 @@ export function useAudioInput(): UseAudioInputReturn {
         error: null,
       });
       
-      processAudio();
+      // Start processing audio
+      processAudioRef.current?.();
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to access microphone';
       setAudioState(prev => ({
@@ -208,7 +215,7 @@ export function useAudioInput(): UseAudioInputReturn {
         error: message,
       }));
     }
-  }, [processAudio]);
+  }, []);
   
   const stopListening = useCallback(() => {
     if (animationFrameRef.current) {
@@ -248,9 +255,17 @@ export function useAudioInput(): UseAudioInputReturn {
   // Cleanup on unmount
   useEffect(() => {
     return () => {
-      stopListening();
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+      }
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(track => track.stop());
+      }
+      if (audioContextRef.current) {
+        audioContextRef.current.close();
+      }
     };
-  }, [stopListening]);
+  }, []);
   
   return {
     audioState,
@@ -262,5 +277,3 @@ export function useAudioInput(): UseAudioInputReturn {
     clearNotes,
   };
 }
-
-
